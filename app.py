@@ -4,49 +4,33 @@ from openai import OpenAI
 import requests
 from datetime import datetime
 import pandas as pd
-import streamlit.components.v1 as components
 
-# Force sidebar to open by default
-components.html(
-    "<script>document.querySelector('section[data-testid=stSidebar]').style.display = 'block';</script>",
-    height=0
-)
-
-# Set up API keys
+# Set up OpenAI and Finnhub clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar settings
-st.sidebar.title("📅 Chart Timeframe")
+# Sidebar: Chart timeframe
+st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
+
+# Set chart interval based on timeframe
 interval_map = {
     "1d": "5m",
     "5d": "15m",
-    "1mo": "30m",
-    "3mo": "1h",
+    "1mo": "60m",
+    "3mo": "1d",
     "6mo": "1d",
     "1y": "1d"
 }
-interval = interval_map[timeframe]
+interval = interval_map.get(timeframe, "1d")
 
-# Watchlist
+# List of tickers to analyze
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# Functions
-def fetch_headline(ticker):
-    try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
-        res = requests.get(url).json()
-        if res and isinstance(res, list) and "headline" in res[0]:
-            return res[0]["headline"]
-        else:
-            return f"No news for {ticker} today."
-    except Exception as e:
-        return f"Error: {e}"
-
-def get_vibe_score(headline):
-    prompt = f"Rate this stock market news headline from 1 (very bearish) to 10 (very bullish): {headline}"
+# Cache vibe scores for headlines
+@st.cache_data(show_spinner=False)
+def get_vibe_score_cached(headline):
+    prompt = f"Rate this stock market news headline from 1 (very bearish) to 10 (very bullish), and explain why: {headline}"
     try:
         res = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -56,13 +40,28 @@ def get_vibe_score(headline):
     except Exception as e:
         return f"Error: {e}"
 
-def interpret_signal(vibe):
+# Get latest headline from Finnhub
+def fetch_headline(ticker):
     try:
-        score = int(vibe)
+        today = datetime.now().strftime("%Y-%m-%d")
+        url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
+        response = requests.get(url)
+        news = response.json()
+        if news and isinstance(news, list) and "headline" in news[0]:
+            return news[0]["headline"]
+        else:
+            return "No recent headline found."
+    except Exception as e:
+        return f"Error fetching news: {e}"
+
+# Determine recommendation based on score
+def recommend_from_score(score_text):
+    try:
+        score = int("".join(filter(str.isdigit, score_text.split()[0])))
         if score >= 8:
             return "📈 Buy"
         elif score <= 3:
-            return "🔻 Sell"
+            return "📉 Sell"
         else:
             return "🤖 Hold"
     except:
@@ -75,17 +74,18 @@ for ticker in tickers:
     st.subheader(ticker)
 
     try:
+        # Price chart
         data = yf.download(ticker, period=timeframe, interval=interval)
         st.line_chart(data["Close"])
 
+        # Headline
         headline = fetch_headline(ticker)
-        vibe = get_vibe_score(headline)
-        signal = interpret_signal(vibe)
-
         st.markdown(f"📰 **Headline:** *{headline}*")
-        st.markdown(f"🧠 **Vibe Score:** `{vibe}`")
-        st.markdown(f"🤖 **AI Signal:** {signal}")
-        st.markdown("---")
+
+        # AI analysis
+        vibe = get_vibe_score_cached(headline)
+        st.markdown(f"🧠 **Vibe Score:** {vibe}")
+        st.markdown(f"🤖 **AI Signal:** {recommend_from_score(vibe)}")
 
     except Exception as e:
         st.error(f"Failed to analyze {ticker}: {e}")
