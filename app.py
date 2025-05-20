@@ -91,7 +91,8 @@ for ticker in tickers:
         if reasons:
             st.markdown("💬 **Reasoning:**")
             for reason in reasons:
-                st.markdown(f"- {reason}")
+                clean_reason = reason.lstrip("-• ").strip()
+                st.markdown(f"- {clean_reason}")
         else:
             st.markdown("*Unable to parse AI reasoning.*")
 
