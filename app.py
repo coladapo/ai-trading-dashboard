@@ -1,99 +1,96 @@
 import streamlit as st
 import yfinance as yf
 import requests
-from datetime import datetime
 from openai import OpenAI
-import os
+from datetime import datetime
 
-# Setup API clients
+# Set up API clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar timeframe selector
-st.sidebar.title("📅 Chart Timeframe")
-timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"], index=0)
+# Sidebar chart timeframe
+st.sidebar.header("📅 Chart Timeframe")
+timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 
-# Chart intervals based on timeframe
-intervals = {
-    "1d": "5m",
-    "5d": "15m",
-    "1mo": "30m",
-    "3mo": "1d",
-    "6mo": "1d",
-    "1y": "1d"
-}
-interval = intervals[timeframe]
-
-# Tickers
+# List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# Streamlit app title
-st.title("📊 AI-Powered Day Trading Watchlist")
-
-# Helper: fetch headline
+# Fetch the latest headline
 def fetch_headline(ticker):
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
-        response = requests.get(url)
-        news = response.json()
+        res = requests.get(url)
+        news = res.json()
         if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
         else:
-            return "No recent news found"
+            return f"No recent news found for {ticker}"
     except Exception as e:
         return f"Error fetching news: {e}"
 
-# Helper: analyze vibe
+# Analyze headline
 def get_vibe_score_and_reasoning(headline):
-    prompt = f"""Analyze the sentiment of this market news headline:
+    prompt = f"""Analyze this stock market news headline:
 "{headline}"
 
-First, give me a score from 1 (very bearish) to 10 (very bullish).
-Then provide a brief reason for your score on a new line starting with "Reason:"."""
+Rate it from 1 (very bearish) to 10 (very bullish). Then summarize your reasoning in 2–3 clear bullet points starting with "-".
+
+Respond in this format:
+Score: #
+- Reason 1
+- Reason 2
+- Reason 3 (optional)
+"""
     try:
         res = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        output = res.choices[0].message.content.strip()
-        lines = output.split("\n")
-        score = "N/A"
-        reason = "No explanation provided."
-        for line in lines:
-            if line.strip().isdigit():
-                score = int(line.strip())
-            elif "Reason:" in line:
-                reason = line.split("Reason:")[-1].strip()
-        return score, reason
+        return res.choices[0].message.content.strip()
     except Exception as e:
-        return "N/A", f"Error analyzing vibe: {e}"
+        return f"Error: {e}"
 
-# Display chart + insights
+# App layout
+st.title("📊 AI-Powered Day Trading Watchlist")
+
 for ticker in tickers:
     st.subheader(ticker)
+
+    # Chart
     try:
-        data = yf.download(ticker, period=timeframe, interval=interval)
+        data = yf.download(ticker, period=timeframe, interval="5m" if timeframe == "1d" else "1d")
         st.line_chart(data["Close"])
+    except Exception as e:
+        st.error(f"Chart error for {ticker}: {e}")
+        continue
 
-        headline = fetch_headline(ticker)
-        score, reason = get_vibe_score_and_reasoning(headline)
+    # Headline
+    headline = fetch_headline(ticker)
+    st.markdown(f"📰 **Headline:** _{headline}_")
 
-        st.markdown(f"📰 **Headline:** *{headline}*")
+    # Vibe Score + Reasoning
+    result = get_vibe_score_and_reasoning(headline)
+    if result.startswith("Error"):
+        st.markdown(f"🧠 **Vibe Score:** {result}")
+        st.markdown("🤖 **AI Signal:** ⚠️ No recommendation")
+        continue
+
+    try:
+        lines = result.splitlines()
+        score_line = next((line for line in lines if "Score:" in line), None)
+        score = int(score_line.split(":")[1].strip()) if score_line else None
+        reasons = "\n".join([line for line in lines if line.startswith("-")])
+
         st.markdown(f"🧠 **Vibe Score:** `{score}`")
-        st.markdown(f"✍️ **Reasoning:** {reason}")
+        st.markdown(f"📝 **Reasoning:**\n{reasons}")
 
-        if isinstance(score, int):
-            if score >= 8:
-                signal = "📈 Buy"
-            elif score <= 3:
-                signal = "🔻 Sell"
-            else:
-                signal = "🤖 Hold"
+        if score >= 8:
+            st.markdown("🤖 **AI Signal:** 📈 Buy")
+        elif score <= 3:
+            st.markdown("🤖 **AI Signal:** 📉 Sell")
         else:
-            signal = "⚠️ No recommendation"
-
-        st.markdown(f"🤖 **AI Signal:** {signal}")
+            st.markdown("🤖 **AI Signal:** 🤖 Hold")
 
     except Exception as e:
-        st.error(f"Failed to analyze {ticker}: {e}")
+        st.error(f"Response parsing error: {e}")
