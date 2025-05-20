@@ -29,12 +29,12 @@ def fetch_headline(ticker):
         if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
         else:
-            return "🛑 No recent news found for ticker."
+            return "⚠️ No recent news found for ticker."
     except Exception as e:
         return f"⚠️ Error fetching news: {e}"
 
 # Function: Get vibe score and reasoning from OpenAI
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
@@ -54,51 +54,65 @@ Score: #
         )
         return res.choices[0].message.content
     except Exception as e:
-        return f"⚠️ Error getting vibe score: {e}"
+        return f"⚠️ Error fetching Vibe Score: {e}"
 
-# Function: Fetch and process price data
-@st.cache_data(ttl=60, show_spinner=False)
-def fetch_price_data(ticker, period):
-    df = yf.download(ticker, period=period, progress=False)
-    df = df.reset_index()
-    df = df.rename(columns={"Date": "date", "Close": "close"})
-    return df[["date", "close"]]
+# Function: Fetch historical price data
+@st.cache_data(ttl=30)
+def get_stock_data(ticker, tf):
+    data = yf.download(ticker, period=tf)
+    data.reset_index(inplace=True)
+    data.columns = [col.lower() if isinstance(col, str) else col for col in data.columns]
+    return data
 
-# Clear cache if refresh is clicked
-if refresh:
-    st.cache_data.clear()
+# Function: Parse Vibe Score & Reasoning
+def parse_vibe(vibe_output):
+    lines = vibe_output.split("\n")
+    score = None
+    reasons = []
+    for line in lines:
+        if line.lower().startswith("score"):
+            try:
+                score = int("".join(filter(str.isdigit, line)))
+            except:
+                score = "❓"
+        elif line.startswith("-"):
+            reasons.append(line.strip("- "))
+    return score, reasons
 
-# --------- MAIN APP ---------
-
+# UI Rendering
 st.title("📊 AI-Powered Day Trading Dashboard")
 
 for ticker in tickers:
-    st.subheader(ticker)
-
+    st.subheader(f"{ticker}")
     try:
-        df = fetch_price_data(ticker, timeframe)
+        df = get_stock_data(ticker, timeframe)
         fig = px.line(df, x="date", y="close", title=f"{ticker} Close Price")
-        fig.update_traces(line=dict(color="skyblue"))
-        fig.update_layout(margin=dict(l=10, r=10, t=30, b=30))
         st.plotly_chart(fig, use_container_width=True)
+
+        headline = fetch_headline(ticker)
+        st.markdown(f"**🗞 Headline:** *{headline}*")
+
+        vibe_output = get_vibe_score(headline)
+        score, reasons = parse_vibe(vibe_output)
+        st.markdown(f"**🧠 Vibe Score:** <span style='color:limegreen;font-weight:bold'>{score}</span>", unsafe_allow_html=True)
+        st.markdown("**💬 Reasoning:**")
+        for r in reasons:
+            st.markdown(f"- {r}")
+
+        if isinstance(score, int):
+            if score >= 8:
+                st.markdown("**🤖 AI Signal:** 📈 Buy")
+            elif score >= 5:
+                st.markdown("**🤖 AI Signal:** 🤖 Hold")
+            else:
+                st.markdown("**🤖 AI Signal:** 📉 Sell")
+        else:
+            st.markdown("**🤖 AI Signal:** ⚠️ No recommendation")
 
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
-        continue
 
-    # News headline and sentiment
-    headline = fetch_headline(ticker)
-    st.markdown(f"🗞️ **Headline:** *{headline}*")
-
-    vibe_result = get_vibe_score(headline)
-    if "Score:" in vibe_result:
-        lines = vibe_result.split("\n")
-        score_line = next((line for line in lines if line.lower().startswith("score:")), "")
-        reasoning = "\n".join(line for line in lines if line.startswith("-"))
-        score = score_line.replace("Score:", "").strip()
-
-        st.markdown(f"🧠 **Vibe Score:** <span style='color:lightgreen;'>{score}</span>", unsafe_allow_html=True)
-        st.markdown("💬 **Reasoning:**")
-        st.markdown(reasoning)
-    else:
-        st.warning("Could not extract vibe score.")
+# Refresh Button Logic
+if refresh:
+    st.cache_data.clear()
+    st.experimental_rerun()
