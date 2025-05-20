@@ -10,15 +10,15 @@ from openai import OpenAI
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# 📅 Sidebar UI
+# 🧭 Sidebar: Timeframe + Refresh
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔄 Refresh Data")
 
-# 🧾 Watchlist
+# 📈 Watchlist tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# 📰 Latest News Headline
+# 📰 Fetch latest headline from Finnhub
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_headline(ticker):
     try:
@@ -28,12 +28,11 @@ def fetch_headline(ticker):
         news = response.json()
         if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
-        else:
-            return "⚠️ No recent news found."
+        return "⚠️ No recent news found."
     except Exception as e:
         return f"⚠️ Error fetching news: {e}"
 
-# 🧠 Vibe Score
+# 🧠 Analyze Vibe Score via OpenAI
 @st.cache_data(ttl=600, show_spinner=False)
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
@@ -57,14 +56,14 @@ Score: #
     except Exception as e:
         return f"⚠️ Error fetching Vibe Score: {e}"
 
-# 📈 Fetch chart data
+# 📊 Fetch chart data
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
 def get_stock_data(ticker, timeframe):
     df = yf.download(ticker, period=timeframe)
-    df = df.reset_index()
+    df.reset_index(inplace=True)
     return df
 
-# 📊 App layout
+# 🎯 Render Dashboard
 st.title("📊 AI-Powered Day Trading Dashboard")
 
 for ticker in tickers:
@@ -78,11 +77,11 @@ for ticker in tickers:
         st.error(f"Chart error for {ticker}: {e}")
         continue
 
-    # 📰 Headline
+    # 📰 News headline
     headline = fetch_headline(ticker)
     st.markdown(f"📰 **Headline:** *{headline}*")
 
-    # 🧠 Vibe Score + Breakdown
+    # 🧠 Vibe Score
     vibe = get_vibe_score(headline)
     if vibe.startswith("Score:"):
         lines = vibe.splitlines()
