@@ -6,19 +6,19 @@ import plotly.express as px
 from datetime import datetime
 from openai import OpenAI
 
-# Set up OpenAI and Finnhub clients
+# 🔐 Set up OpenAI and Finnhub clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar – Timeframe selector and Refresh button
+# ⏱ Sidebar - Timeframe selector and refresh button
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("🔁 Refresh Data")
+refresh = st.sidebar.button("🔄 Refresh Data")
 
-# List of tickers
+# 📈 List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# Function: Fetch latest news headline from Finnhub
+# 📰 Function: Fetch latest news headline from Finnhub
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_headline(ticker):
     try:
@@ -29,11 +29,11 @@ def fetch_headline(ticker):
         if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
         else:
-            return "🚫 No recent news found for ticker."
+            return "⚠️ No recent news found for ticker."
     except Exception as e:
         return f"⚠️ Error fetching news: {e}"
 
-# Function: Get vibe score and reasoning from OpenAI
+# 🤖 Function: Get vibe score and reasoning from OpenAI
 @st.cache_data(ttl=600, show_spinner=False)
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
@@ -54,57 +54,51 @@ Score: #
         )
         return res.choices[0].message.content.strip()
     except Exception as e:
-        return f"⚠️ Error getting score: {e}"
+        return f"⚠️ Error from OpenAI: {e}"
 
-# Function: Fetch stock data from yfinance
-@st.cache_data(ttl=900, show_spinner=False)
-def get_stock_data(ticker, period):
-    df = yf.download(ticker, period=period, interval="30m" if period == "1d" else "1d")
-    df.reset_index(inplace=True)
-    df.rename(columns={"Date": "date", "Close": "close"}, inplace=True)
+# 📊 Function: Fetch and plot stock price data
+@st.cache_data(ttl=300, show_spinner=False)
+def get_stock_data(ticker, tf):
+    df = yf.download(ticker, period=tf, interval="5m" if tf == "1d" else "1d")
+    df = df.reset_index()
+    df.rename(columns={"Date": "Datetime"}, inplace=True)
     return df
 
-# Function: Parse score and reasoning
-def parse_vibe(vibe_raw):
-    lines = vibe_raw.strip().split("\n")
-    score_line = next((line for line in lines if "Score:" in line), "Score: ?")
-    score = score_line.replace("Score:", "").strip()
-    reasons = [line.strip("- ") for line in lines if line.strip().startswith("-")]
-    return score, reasons
+# 🔄 Clear cache if refresh is clicked
+if refresh:
+    st.cache_data.clear()
 
-# Main
+# 🚀 Main Display
 st.title("📊 AI-Powered Day Trading Dashboard")
 
 for ticker in tickers:
     st.subheader(ticker)
 
+    # 🧠 Vibe & Signal
+    try:
+        headline = fetch_headline(ticker)
+        st.markdown(f"🗞️ **Headline:** *{headline}*")
+
+        vibe_result = get_vibe_score(headline)
+        if "Score:" in vibe_result:
+            lines = vibe_result.split("\n")
+            score_line = next((line for line in lines if line.startswith("Score:")), "Score: N/A")
+            reasons = "\n".join([line for line in lines if line.startswith("-")])
+
+            st.markdown(f"🧠 **Vibe Score:** {score_line.split(':')[1].strip()}")
+            st.markdown("💬 **Reasoning:**")
+            st.markdown(f"{reasons}")
+        else:
+            st.markdown(vibe_result)
+    except Exception as e:
+        st.error(f"Vibe analysis error for {ticker}: {e}")
+
+    # 📈 Chart
     try:
         df = get_stock_data(ticker, timeframe)
-        if df.empty:
-            st.warning("No data found.")
-            continue
-
-        fig = px.line(df, x="date", y="close", title=f"{ticker} Close Price")
+        fig = px.line(df, x="Datetime", y="Close", title=f"{ticker} Close Price")
+        fig.update_layout(xaxis_title="Time", yaxis_title="Price", margin=dict(l=20, r=20, t=40, b=20))
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
-        continue
-
-    headline = fetch_headline(ticker)
-    st.markdown(f"📰 **Headline:** *{headline}*")
-
-    vibe_raw = get_vibe_score(headline)
-    score, reasons = parse_vibe(vibe_raw)
-
-    st.markdown(f"**🧠 Vibe Score:** `{score}`")
-    st.markdown("**💬 Reasoning:**")
-    for reason in reasons:
-        st.markdown(f"- {reason}")
-
-    score_int = int(score) if score.isdigit() else 0
-    if score_int >= 8:
-        st.markdown("**🤖 AI Signal:** 📈 Buy")
-    elif score_int >= 5:
-        st.markdown("**🤖 AI Signal:** 🤖 Hold")
-    else:
-        st.markdown("**🤖 AI Signal:** 📉 Sell")
+    
