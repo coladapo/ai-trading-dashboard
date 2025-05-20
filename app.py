@@ -5,20 +5,24 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime
 from openai import OpenAI
-import re
 
 # Set up OpenAI and Finnhub clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar – Timeframe selector
+# Sidebar – Timeframe Selector
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
+
+# Refresh Button
+if st.sidebar.button("🔁 Refresh Data"):
+    st.cache_data.clear()
 
 # List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
 # Function: Fetch latest news headline from Finnhub
+@st.cache_data(ttl=300)
 def fetch_headline(ticker):
     try:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -32,8 +36,8 @@ def fetch_headline(ticker):
     except Exception as e:
         return f"Error fetching news: {e}"
 
-# Function: Get vibe score and explanation from OpenAI
-def get_vibe_score_and_reasoning(headline):
+# Function: Get vibe score from OpenAI
+async def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
 
@@ -50,63 +54,49 @@ Score: #
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        reply = res.choices[0].message.content.strip()
-        score_match = re.search(r"Score: (\d+)", reply)
-        reasoning = re.findall(r"- (.*)", reply)
-        score = int(score_match.group(1)) if score_match else "N/A"
-        return score, reasoning
+        return res.choices[0].message.content
     except Exception as e:
-        return f"Error: {e}", []
+        return f"Error: {e}"
 
-# Function: Get AI trading signal
-def get_signal(vibe_score):
-    try:
-        vibe_score = int(vibe_score)
-        if vibe_score >= 8:
-            return "📈 Buy"
-        elif vibe_score <= 3:
-            return "📉 Sell"
-        else:
-            return "🤖 Hold"
-    except:
-        return "⚠️ No recommendation"
+# Main Dashboard
+st.title("📊 AI-Powered Day Trading Dashboard")
 
-# Dashboard title
-st.markdown("""
-# 📊 AI-Powered Day Trading Dashboard
-""")
-
-# Main loop
 for ticker in tickers:
     st.subheader(ticker)
+
+    # Skip cache for price data to keep it real-time
     try:
-        # Fetch data
-        data = yf.download(ticker, period=timeframe, interval="5m" if timeframe == "1d" else "1d")
-        if data.empty:
+        df = yf.download(ticker, period=timeframe, progress=False)
+        if df.empty:
             st.warning("No price data available.")
             continue
 
-        # Plotting
         fig, ax = plt.subplots()
-        ax.plot(data.index, data["Close"], color="#1f77b4")
+        ax.plot(df.index, df['Close'], label=f'{ticker} Close Price', color='dodgerblue')
         ax.set_title(f"{ticker} Close Price")
         ax.set_xlabel("Time")
         ax.set_ylabel("Price")
+        ax.legend()
         fig.autofmt_xdate()
         st.pyplot(fig)
-
-        # News and Vibe
-        headline = fetch_headline(ticker)
-        vibe_score, reasoning = get_vibe_score_and_reasoning(headline)
-        signal = get_signal(vibe_score)
-
-        st.markdown(f"**📰 Headline:** *{headline}*")
-        st.markdown(f"**🧠 Vibe Score:** <span style='color: green;'>{vibe_score}</span>", unsafe_allow_html=True)
-        st.markdown("**💬 Reasoning:**")
-        for point in reasoning:
-            st.markdown(f"- {point}")
-        st.markdown(f"**🤖 AI Signal:** {signal}")
-
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
-    
+        continue
+
+    # Headline + Vibe Score + AI Reasoning
+    headline = fetch_headline(ticker)
+    st.markdown(f"**📰 Headline:** _{headline}_")
+
+    response = st.experimental_sync(get_vibe_score)(headline)
+    if "Score:" in response:
+        try:
+            score_line = response.split("\n")[0]
+            score = score_line.replace("Score:", "").strip()
+            st.markdown(f"**🧠 Vibe Score:** `{score}`")
+
+            st.markdown("**💬 Reasoning:**")
+            st.markdown("\n".join(response.split("\n")[1:]))
+        except:
+            st.markdown(f"**Vibe Score:** {response}")
+    else:
+        st.markdown(f"**Vibe Score:** {response}")
