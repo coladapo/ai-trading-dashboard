@@ -5,7 +5,7 @@ from datetime import date
 from openai import OpenAI
 import numpy as np
 
-# Set up secrets
+# Secrets
 openai_api_key = st.secrets["OPENAI_API_KEY"]
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
@@ -46,7 +46,7 @@ def generate_signal(vibe_score, volume_ratio):
             return "⚠️ No recommendation"
     return "⚠️ No recommendation"
 
-# --- UI ---
+# Streamlit UI
 st.title("📊 AI-Powered Day Trading Watchlist")
 
 for ticker in tickers:
@@ -59,14 +59,19 @@ for ticker in tickers:
         # Volume ratio
         latest_volume = data["Volume"].iloc[-1]
         avg_volume = data["Volume"].mean()
-        volume_ratio = 0 if np.isnan(avg_volume) or avg_volume == 0 else latest_volume / avg_volume
 
-        # Headline & Vibe
+        # Fix: Ensure avg_volume is a scalar and not NaN
+        if np.isnan(avg_volume) or avg_volume == 0:
+            volume_ratio = 0
+        else:
+            volume_ratio = float(latest_volume) / float(avg_volume)
+
+        # News + Vibe
         headline = fetch_headline(ticker)
         vibe = get_vibe_score(headline)
         signal = generate_signal(vibe, volume_ratio)
 
-        # Display insights
+        # Display
         st.write(f"🐋 **Volume Ratio**: {volume_ratio:.2f}")
         st.write(f"📰 **Headline**: _{headline}_")
         st.write(f"🧠 **Vibe Score**: {vibe}")
