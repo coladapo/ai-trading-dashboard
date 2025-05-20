@@ -1,30 +1,29 @@
 import streamlit as st
 import yfinance as yf
-from openai import OpenAI
 import requests
-from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
+from datetime import datetime
+from openai import OpenAI
 
 # Set up OpenAI and Finnhub clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar - Select chart timeframe
+# Sidebar controls
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 interval_map = {
     "1d": "5m",
     "5d": "15m",
-    "1mo": "1h",
-    "3mo": "1d",
-    "6mo": "1d",
+    "1mo": "30m",
+    "3mo": "1h",
+    "6mo": "1h",
     "1y": "1d"
 }
 interval = interval_map[timeframe]
 
-# List of tickers
+# Tickers to track
 tickers = ["QBTS", "RGTI", "IONQ"]
 
 # Function: Fetch latest news headline from Finnhub
@@ -59,18 +58,15 @@ Score: #
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        content = res.choices[0].message.content.strip()
-        lines = content.split("\n")
-        score_line = next((line for line in lines if line.startswith("Score:")), None)
-        score = int(score_line.split(":")[1].strip()) if score_line else "N/A"
-        reasons = [line.strip() for line in lines if line.startswith("-")]
+        reply = res.choices[0].message.content.strip()
+        score_line = next((line for line in reply.splitlines() if line.startswith("Score:")), None)
+        score = int(score_line.split(":")[1].strip()) if score_line else 0
+        reasons = "\n".join([line for line in reply.splitlines() if line.startswith("-")])
         return score, reasons
     except Exception as e:
-        return "N/A", [f"Error analyzing headline: {e}"]
+        return 0, f"Error analyzing headline: {e}"
 
-# Function: Determine recommendation based on score
-def get_signal(score):
-    try:
-        score = int(score)
-        if score >= 8:
-            return "
+# Function: Get AI trading recommendation
+def get_ai_signal(score):
+    if score >= 8:
+        return "
