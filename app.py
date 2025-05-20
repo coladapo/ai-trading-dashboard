@@ -1,50 +1,55 @@
 import streamlit as st
 import yfinance as yf
-import requests
-from datetime import date
 from openai import OpenAI
-import numpy as np
+import requests
+from datetime import datetime
+import pandas as pd
 
-# Secrets
-openai_api_key = st.secrets["OPENAI_API_KEY"]
+# Set up OpenAI and Finnhub clients
+openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-client = OpenAI(api_key=openai_api_key)
+# List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
-today = date.today().strftime("%Y-%m-%d")
 
+# Function: Fetch latest news headline from Finnhub
 def fetch_headline(ticker):
     try:
+        today = datetime.now().strftime("%Y-%m-%d")
         url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
         response = requests.get(url)
         news = response.json()
-        if news and isinstance(news, list):
+        if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
         else:
             return f"No recent news found for {ticker}"
     except Exception as e:
         return f"Error fetching news: {e}"
 
+# Function: Get vibe score from OpenAI
 def get_vibe_score(headline):
-    prompt = f"Rate this headline from 1 (very bearish) to 10 (very bullish): {headline}"
+    prompt = f"Rate this stock market news headline from 1 (very bearish) to 10 (very bullish): {headline}"
     try:
-        res = client.chat.completions.create(
+        res = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        return int(res.choices[0].message.content.strip())
+        score = int(res.choices[0].message.content.strip())
+        return score
     except Exception as e:
         return f"Error: {e}"
 
-def generate_signal(vibe_score, volume_ratio):
-    if isinstance(vibe_score, int):
-        if vibe_score >= 8 and volume_ratio > 1.2:
+# Function: Generate AI signal
+def generate_signal(score, volume_ratio):
+    if isinstance(score, int):
+        if score >= 8 and volume_ratio > 1.5:
             return "📈 Buy"
-        elif vibe_score <= 3 and volume_ratio > 1.2:
+        elif score <= 3 and volume_ratio > 1.5:
             return "📉 Sell"
         else:
             return "⚠️ No recommendation"
-    return "⚠️ No recommendation"
+    else:
+        return "⚠️ No recommendation"
 
 # Streamlit UI
 st.title("📊 AI-Powered Day Trading Watchlist")
@@ -53,29 +58,27 @@ for ticker in tickers:
     st.subheader(ticker)
 
     try:
+        # Fetch intraday stock data
         data = yf.download(ticker, period="5d", interval="30m")
         st.line_chart(data["Close"])
 
-        # Volume ratio
+        # Volume trend analysis
         latest_volume = data["Volume"].iloc[-1]
         avg_volume = data["Volume"].mean()
+        volume_ratio = latest_volume / avg_volume if avg_volume != 0 else 0
 
-        # Fix: Ensure avg_volume is a scalar and not NaN
-        if np.isnan(avg_volume) or avg_volume == 0:
-            volume_ratio = 0
-        else:
-            volume_ratio = float(latest_volume) / float(avg_volume)
+        # Show volume insights (optional - or remove this)
+        # st.caption(f"🔍 Volume ratio: {volume_ratio:.2f}")
 
-        # News + Vibe
+        # News + Vibe Score
         headline = fetch_headline(ticker)
-        vibe = get_vibe_score(headline)
-        signal = generate_signal(vibe, volume_ratio)
+        vibe_score = get_vibe_score(headline)
+        signal = generate_signal(vibe_score, volume_ratio)
 
-        # Display
-        st.write(f"🐋 **Volume Ratio**: {volume_ratio:.2f}")
-        st.write(f"📰 **Headline**: _{headline}_")
-        st.write(f"🧠 **Vibe Score**: {vibe}")
-        st.write(f"🤖 **AI Signal**: {signal}")
+        # Display results
+        st.markdown(f"📰 **Headline:** _{headline}_")
+        st.markdown(f"🧠 **Vibe Score:** {vibe_score}")
+        st.markdown(f"🤖 **AI Signal:** {signal}")
         st.markdown("---")
 
     except Exception as e:
