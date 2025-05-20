@@ -6,19 +6,19 @@ import plotly.express as px
 from datetime import datetime
 from openai import OpenAI
 
-# 🔑 API keys from Streamlit secrets
+# 🔐 API keys
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# 🎛️ Sidebar
+# 📅 Sidebar UI
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔄 Refresh Data")
 
-# 📈 Tickers to monitor
+# 🧾 Watchlist
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# 📰 Fetch News Headline
+# 📰 Latest News Headline
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_headline(ticker):
     try:
@@ -57,45 +57,32 @@ Score: #
     except Exception as e:
         return f"⚠️ Error fetching Vibe Score: {e}"
 
-# 📊 Stock Data
+# 📈 Fetch chart data
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
 def get_stock_data(ticker, timeframe):
     df = yf.download(ticker, period=timeframe)
     df = df.reset_index()
-
-    # Rename for unique columns
-    df = df.rename(columns={
-        "Date": "date",
-        "Open": f"{ticker}_open",
-        "High": f"{ticker}_high",
-        "Low": f"{ticker}_low",
-        "Close": f"{ticker}_close",
-        "Adj Close": f"{ticker}_adj_close",
-        "Volume": f"{ticker}_volume"
-    })
-
     return df
 
-# 📊 Render Dashboard
+# 📊 App layout
 st.title("📊 AI-Powered Day Trading Dashboard")
 
 for ticker in tickers:
     st.subheader(ticker)
 
-    # Get and display chart
     try:
         df = get_stock_data(ticker, timeframe)
-        fig = px.line(df, x="date", y=f"{ticker}_close", title=f"{ticker} Close Price")
+        fig = px.line(df, x="Date", y="Close", title=f"{ticker} Close Price")
         st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
         continue
 
-    # Show headline
+    # 📰 Headline
     headline = fetch_headline(ticker)
     st.markdown(f"📰 **Headline:** *{headline}*")
 
-    # Show vibe score
+    # 🧠 Vibe Score + Breakdown
     vibe = get_vibe_score(headline)
     if vibe.startswith("Score:"):
         lines = vibe.splitlines()
