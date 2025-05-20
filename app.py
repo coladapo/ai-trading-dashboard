@@ -13,7 +13,7 @@ finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 # Sidebar – Timeframe selector and Refresh button
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("🔄 Refresh Data")
+refresh = st.sidebar.button("🔁 Refresh Data")
 
 # List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
@@ -29,7 +29,7 @@ def fetch_headline(ticker):
         if news and isinstance(news, list) and "headline" in news[0]:
             return news[0]["headline"]
         else:
-            return "📰 No recent news found for ticker."
+            return "🛑 No recent news found for ticker."
     except Exception as e:
         return f"⚠️ Error fetching news: {e}"
 
@@ -54,63 +54,55 @@ Score: #
         )
         return res.choices[0].message.content
     except Exception as e:
-        return f"⚠️ OpenAI error: {e}"
+        return f"⚠️ Error getting vibe score: {e}"
 
-# Function: Fetch price data
-@st.cache_data(ttl=900, show_spinner=False)
+# Function: Fetch and process price data
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_price_data(ticker, period):
-    return yf.download(ticker, period=period, interval="30m")
+    df = yf.download(ticker, period=period, progress=False)
+    df = df.reset_index()
+    df = df.rename(columns={"Date": "date", "Close": "close"})
+    return df[["date", "close"]]
 
-# Clear cache manually if user clicks refresh
+# Clear cache if refresh is clicked
 if refresh:
     st.cache_data.clear()
 
-# Main UI
+# --------- MAIN APP ---------
+
 st.title("📊 AI-Powered Day Trading Dashboard")
+
 for ticker in tickers:
     st.subheader(ticker)
 
     try:
-        price_data = fetch_price_data(ticker, timeframe)
-        price_data.reset_index(inplace=True)
-        plt.figure(figsize=(8, 4))
-        plt.plot(price_data["Date"], price_data["Close"], color="#1f77b4", linewidth=2)
-        plt.title(f"{ticker} Close Price")
-        plt.xlabel("Time")
-        plt.ylabel("Price")
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        st.pyplot(plt)
+        df = fetch_price_data(ticker, timeframe)
+
+        fig, ax = plt.subplots()
+        ax.plot(df["date"], df["close"], color="skyblue", linewidth=2)
+        ax.set_title(f"{ticker} Close Price")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Price")
+        fig.autofmt_xdate()
+        st.pyplot(fig)
+
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
         continue
 
-    # News and Vibe Score
+    # News headline and sentiment
     headline = fetch_headline(ticker)
-    st.markdown(f"**📰 Headline:** *{headline}*")
+    st.markdown(f"🗞️ **Headline:** *{headline}*")
 
-    score_response = get_vibe_score(headline)
-    if score_response.startswith("⚠️"):
-        st.error(score_response)
-        continue
+    vibe_result = get_vibe_score(headline)
+    if "Score:" in vibe_result:
+        lines = vibe_result.split("\n")
+        score_line = next((line for line in lines if line.lower().startswith("score:")), "")
+        reasoning = "\n".join(line for line in lines if line.startswith("-"))
+        score = score_line.replace("Score:", "").strip()
 
-    try:
-        score_lines = score_response.strip().split("\n")
-        score_line = score_lines[0].replace("Score:", "").strip()
-        reasoning_lines = score_lines[1:]
-        score = int(score_line)
-        st.markdown(f"**🧠 Vibe Score:** <span style='color:limegreen'>{score}</span>", unsafe_allow_html=True)
-        st.markdown("**💬 Reasoning:**")
-        for line in reasoning_lines:
-            if line.startswith("-"):
-                st.markdown(f"- {line[1:].strip()}")
-
-        # Basic AI Signal
-        if score >= 8:
-            st.markdown("**🤖 AI Signal:** 📈 Buy")
-        elif score <= 3:
-            st.markdown("**🤖 AI Signal:** 📉 Sell")
-        else:
-            st.markdown("**🤖 AI Signal:** 🤖 Hold")
-    except Exception as e:
-        st.error(f"Failed to analyze score for {ticker}: {e}")
+        st.markdown(f"🧠 **Vibe Score:** <span style='color:lightgreen;'>{score}</span>", unsafe_allow_html=True)
+        st.markdown("💬 **Reasoning:**")
+        st.markdown(reasoning)
+    else:
+        st.warning("Could not extract vibe score.")
