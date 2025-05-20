@@ -3,46 +3,38 @@ import yfinance as yf
 import requests
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 from datetime import datetime
 from openai import OpenAI
-from functools import lru_cache
-import time
 
-# Setup API clients
-openai_client = OpenAI(api_key=st.secrets['OPENAI_API_KEY'])
-finnhub_api_key = st.secrets['FINNHUB_API_KEY']
+# Set up OpenAI and Finnhub clients
+openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar
+# Sidebar – Timeframe selector and Refresh button
 st.sidebar.header("📅 Chart Timeframe")
-timeframe = st.sidebar.selectbox("Select timeframe", ['1d', '5d', '1mo', '3mo', '6mo', '1y'])
+timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔄 Refresh Data")
 
 # List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
+# Function: Fetch latest news headline from Finnhub
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_headline(ticker):
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
         response = requests.get(url)
         news = response.json()
-        if news and isinstance(news, list) and 'headline' in news[0]:
-            return news[0]['headline']
+        if news and isinstance(news, list) and "headline" in news[0]:
+            return news[0]["headline"]
         else:
-            return "No recent news"
+            return "📰 No recent news found for ticker."
     except Exception as e:
-        return f"Error fetching headline: {e}"
+        return f"⚠️ Error fetching news: {e}"
 
-@st.cache_data(ttl=30 if timeframe == '1d' else 3600, show_spinner=False)
-def fetch_price_data(ticker, tf):
-    df = yf.download(ticker, period=tf, interval='5m' if tf == '1d' else '1d')
-    df.reset_index(inplace=True)
-    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
-    df.dropna(subset=['Date'], inplace=True)
-    df.sort_values('Date', inplace=True)
-    return df
-
+# Function: Get vibe score and reasoning from OpenAI
+@st.cache_data(ttl=600, show_spinner=False)
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
@@ -60,70 +52,65 @@ Score: #
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        return res.choices[0].message.content.strip()
+        return res.choices[0].message.content
     except Exception as e:
-        return f"Error: {e}"
+        return f"⚠️ OpenAI error: {e}"
 
-def display_ticker_section(ticker):
-    st.subheader(ticker)
-    try:
-        df = fetch_price_data(ticker, timeframe)
-        if df.empty or df['Close'].isnull().all():
-            st.warning("⚠️ No price data available.")
-            return
+# Function: Fetch price data
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_price_data(ticker, period):
+    return yf.download(ticker, period=period, interval="30m")
 
-        # Plot
-        fig, ax = plt.subplots()
-        ax.plot(df['Date'], df['Close'], color='dodgerblue', linewidth=2)
-        ax.set_title(f"{ticker} Close Price")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Price")
-        ax.grid(True, linestyle='--', alpha=0.5)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d' if timeframe != '1d' else '%m-%d %H:%M'))
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
-
-        # Headline + Score
-        headline = fetch_headline(ticker)
-        st.markdown(f"**📰 Headline:** *{headline}*")
-
-        ai_response = get_vibe_score(headline)
-        if ai_response.startswith("Error"):
-            st.markdown(f"**💬 Error in AI response:** {ai_response}")
-            return
-
-        lines = ai_response.splitlines()
-        score_line = next((l for l in lines if "Score:" in l), "Score: -")
-        reasons = [l for l in lines if l.startswith("-")]
-
-        score = score_line.split(":")[-1].strip()
-        st.markdown(f"**🧠 Vibe Score:** :green[{score}]")
-        st.markdown("**💬 Reasoning:**")
-        for reason in reasons:
-            st.markdown(f"- {reason[1:].strip()}")
-
-        # Recommendation
-        try:
-            score_num = int(score)
-            if score_num >= 8:
-                signal = "📈 Buy"
-            elif score_num <= 3:
-                signal = "📉 Sell"
-            else:
-                signal = "🤖 Hold"
-            st.markdown(f"**📡 AI Signal:** {signal}")
-        except:
-            st.markdown("**📡 AI Signal:** ⚠️ Unable to determine.")
-
-    except Exception as e:
-        st.error(f"Chart error for {ticker}: {e}")
-
-# Refresh handling
+# Clear cache manually if user clicks refresh
 if refresh:
     st.cache_data.clear()
-    st.experimental_rerun()
 
-# Run app
+# Main UI
 st.title("📊 AI-Powered Day Trading Dashboard")
 for ticker in tickers:
-    display_ticker_section(ticker)
+    st.subheader(ticker)
+
+    try:
+        price_data = fetch_price_data(ticker, timeframe)
+        price_data.reset_index(inplace=True)
+        plt.figure(figsize=(8, 4))
+        plt.plot(price_data["Date"], price_data["Close"], color="#1f77b4", linewidth=2)
+        plt.title(f"{ticker} Close Price")
+        plt.xlabel("Time")
+        plt.ylabel("Price")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        st.pyplot(plt)
+    except Exception as e:
+        st.error(f"Chart error for {ticker}: {e}")
+        continue
+
+    # News and Vibe Score
+    headline = fetch_headline(ticker)
+    st.markdown(f"**📰 Headline:** *{headline}*")
+
+    score_response = get_vibe_score(headline)
+    if score_response.startswith("⚠️"):
+        st.error(score_response)
+        continue
+
+    try:
+        score_lines = score_response.strip().split("\n")
+        score_line = score_lines[0].replace("Score:", "").strip()
+        reasoning_lines = score_lines[1:]
+        score = int(score_line)
+        st.markdown(f"**🧠 Vibe Score:** <span style='color:limegreen'>{score}</span>", unsafe_allow_html=True)
+        st.markdown("**💬 Reasoning:**")
+        for line in reasoning_lines:
+            if line.startswith("-"):
+                st.markdown(f"- {line[1:].strip()}")
+
+        # Basic AI Signal
+        if score >= 8:
+            st.markdown("**🤖 AI Signal:** 📈 Buy")
+        elif score <= 3:
+            st.markdown("**🤖 AI Signal:** 📉 Sell")
+        else:
+            st.markdown("**🤖 AI Signal:** 🤖 Hold")
+    except Exception as e:
+        st.error(f"Failed to analyze score for {ticker}: {e}")
