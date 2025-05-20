@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import requests
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
 from datetime import datetime
 from openai import OpenAI
 
@@ -77,14 +77,10 @@ for ticker in tickers:
 
     try:
         df = fetch_price_data(ticker, timeframe)
-
-        fig, ax = plt.subplots()
-        ax.plot(df["date"], df["close"], color="skyblue", linewidth=2)
-        ax.set_title(f"{ticker} Close Price")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Price")
-        fig.autofmt_xdate()
-        st.pyplot(fig)
+        fig = px.line(df, x="date", y="close", title=f"{ticker} Close Price")
+        fig.update_traces(line=dict(color="skyblue"))
+        fig.update_layout(margin=dict(l=10, r=10, t=30, b=30))
+        st.plotly_chart(fig, use_container_width=True)
 
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
