@@ -6,18 +6,22 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from openai import OpenAI
 
-# Set up OpenAI and Finnhub clients
+# Set up API clients
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar - Timeframe selection
+# Sidebar for timeframe selection
 st.sidebar.header("📅 Chart Timeframe")
-timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
+timeframe = st.sidebar.selectbox(
+    "Select timeframe",
+    options=["1d", "5d", "1mo", "3mo", "6mo", "1y"],
+    index=0
+)
 
-# List of tickers
+# List of tickers to track
 tickers = ["QBTS", "RGTI", "IONQ"]
 
-# Function: Fetch latest news headline from Finnhub
+# Function: Fetch news headline from Finnhub
 def fetch_headline(ticker):
     try:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -31,8 +35,8 @@ def fetch_headline(ticker):
     except Exception as e:
         return f"Error fetching news: {e}"
 
-# Function: Get vibe score and reasoning from OpenAI
-def get_vibe_score_and_reasoning(headline):
+# Function: Get Vibe Score from OpenAI
+def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
 
@@ -51,67 +55,65 @@ Score: #
         )
         response = res.choices[0].message.content.strip()
         lines = response.split("\n")
-        score_line = next((line for line in lines if line.lower().startswith("score")), "Score: ?")
-        score = ''.join([c for c in score_line if c.isdigit()]) or "?"
-        reasoning = "\n".join(line for line in lines if line.startswith("-"))
-        return score, reasoning
-    except Exception as e:
-        return "?", f"Error: {e}"
-
-# Function: Determine recommendation
-def get_signal(vibe_score):
-    try:
-        score = int(vibe_score)
-        if score >= 8:
-            return "📈 Buy"
-        elif score <= 3:
-            return "🔻 Sell"
+        score_line = next((line for line in lines if line.startswith("Score:")), None)
+        reasoning_lines = [line for line in lines if line.startswith("-")]
+        
+        if score_line:
+            score = int(score_line.split(":")[1].strip())
         else:
-            return "🤖 Hold"
-    except:
-        return "⚠️ No recommendation"
+            score = "N/A"
 
-# Main dashboard
+        return score, reasoning_lines
+    except Exception as e:
+        return "N/A", [f"Error: {e}"]
+
+# Function: Determine signal based on score
+def get_signal(score):
+    if isinstance(score, int):
+        if score >= 8:
+            return ("📈 Buy", "green")
+        elif score <= 3:
+            return ("📉 Sell", "red")
+        else:
+            return ("🤖 Hold", "gray")
+    return ("⚠️ No recommendation", "orange")
+
+# Title
 st.title("📊 AI-Powered Day Trading Dashboard")
 
+# Main loop for tickers
 for ticker in tickers:
     st.subheader(ticker)
 
-    # Fetch price data
     try:
-        interval = "5m" if timeframe == "1d" else "1d"
-        df = yf.download(ticker, period=timeframe, interval=interval)
-
-        if df.empty:
-            st.warning(f"No data for {ticker}")
-            continue
-
-        # Format x-axis
-        df = df.reset_index()
-        df["Formatted Time"] = df["Datetime" if "Datetime" in df else "Date"].dt.strftime("%m-%d %H:%M" if interval == "5m" else "%m-%d")
-
-        # Plot chart
+        data = yf.download(ticker, period=timeframe, interval="5m")
         fig, ax = plt.subplots()
-        ax.plot(df["Formatted Time"], df["Close"], label=f"{ticker} Close Price", linewidth=2, color="dodgerblue")
+        ax.plot(data.index, data['Close'], color='dodgerblue', linewidth=2)
+        ax.set_title(f"{ticker} Close Price")
         ax.set_xlabel("Time")
         ax.set_ylabel("Price")
-        ax.set_title(f"{ticker} Close Price")
-        ax.tick_params(axis='x', labelrotation=45)
+        ax.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter("%m-%d %H:%M"))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
         st.pyplot(fig)
 
-        # News
+        # News and AI Sentiment
         headline = fetch_headline(ticker)
-        st.markdown(f"📰 **Headline:** _{headline}_")
+        st.markdown(f"📰 **Headline:** *{headline}*")
 
-        # Vibe score + reasoning
-        vibe_score, reasoning = get_vibe_score_and_reasoning(headline)
-        st.markdown(f"🧠 **Vibe Score:** `{vibe_score}`")
-        st.markdown("💬 **Reasoning:**")
-        st.markdown(reasoning)
+        score, reasons = get_vibe_score(headline)
+        st.markdown(f"\n
+:brain: **Vibe Score:** <span style='color:green'><b>{score}</b></span>", unsafe_allow_html=True)
 
-        # Recommendation
-        signal = get_signal(vibe_score)
-        st.markdown(f"🤖 **AI Signal:** {signal}")
+        st.markdown("**💬 Reasoning:**")
+        for reason in reasons:
+            st.markdown(f"- {reason}")
+
+        signal_text, signal_color = get_signal(score)
+        st.markdown(f"\n
+:robot_face: **AI Signal:** <span style='color:{signal_color}'><b>{signal_text}</b></span>", unsafe_allow_html=True)
+
+        st.markdown("---")
 
     except Exception as e:
         st.error(f"Chart error for {ticker}: {e}")
