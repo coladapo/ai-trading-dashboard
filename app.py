@@ -1,33 +1,30 @@
 import streamlit as st
 import yfinance as yf
-from openai import OpenAI
 import requests
-import datetime
+from datetime import date
+from openai import OpenAI
+import numpy as np
 
-# Initialize OpenAI client
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Set up secrets
+openai_api_key = st.secrets["OPENAI_API_KEY"]
+finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Finnhub API Key
-finnhub_key = st.secrets["FINNHUB_API_KEY"]
-
-# Tickers to track
+client = OpenAI(api_key=openai_api_key)
 tickers = ["QBTS", "RGTI", "IONQ"]
+today = date.today().strftime("%Y-%m-%d")
 
-# Helper: fetch latest headline from Finnhub
 def fetch_headline(ticker):
-    today = datetime.date.today().isoformat()
     try:
-        url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_key}"
-        res = requests.get(url)
-        news = res.json()
+        url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
+        response = requests.get(url)
+        news = response.json()
         if news and isinstance(news, list):
             return news[0]["headline"]
         else:
-            return "No recent news"
+            return f"No recent news found for {ticker}"
     except Exception as e:
-        return f"News error: {e}"
+        return f"Error fetching news: {e}"
 
-# Helper: analyze sentiment using OpenAI
 def get_vibe_score(headline):
     prompt = f"Rate this headline from 1 (very bearish) to 10 (very bullish): {headline}"
     try:
@@ -39,40 +36,42 @@ def get_vibe_score(headline):
     except Exception as e:
         return f"Error: {e}"
 
-# Helper: classify recommendation
-def classify_signal(vibe, volume_ratio):
-    if isinstance(vibe, int):
-        if vibe >= 8 and volume_ratio > 1.2:
+def generate_signal(vibe_score, volume_ratio):
+    if isinstance(vibe_score, int):
+        if vibe_score >= 8 and volume_ratio > 1.2:
             return "📈 Buy"
-        elif vibe <= 3 and volume_ratio > 1.2:
+        elif vibe_score <= 3 and volume_ratio > 1.2:
             return "📉 Sell"
         else:
             return "⚠️ No recommendation"
-    else:
-        return "⚠️ No recommendation"
+    return "⚠️ No recommendation"
 
-# App UI
+# --- UI ---
 st.title("📊 AI-Powered Day Trading Watchlist")
 
 for ticker in tickers:
     st.subheader(ticker)
 
-    # Price chart
-    data = yf.download(ticker, period="5d", interval="30m")
-    st.line_chart(data["Close"])
+    try:
+        data = yf.download(ticker, period="5d", interval="30m")
+        st.line_chart(data["Close"])
 
-    # Volume analysis
-    avg_volume = data["Volume"].mean()
-    latest_volume = data["Volume"].iloc[-1]
-    volume_ratio = latest_volume / avg_volume if avg_volume else 0
+        # Volume ratio
+        latest_volume = data["Volume"].iloc[-1]
+        avg_volume = data["Volume"].mean()
+        volume_ratio = 0 if np.isnan(avg_volume) or avg_volume == 0 else latest_volume / avg_volume
 
-    # Headline + sentiment
-    headline = fetch_headline(ticker)
-    vibe = get_vibe_score(headline)
-    signal = classify_signal(vibe, volume_ratio)
+        # Headline & Vibe
+        headline = fetch_headline(ticker)
+        vibe = get_vibe_score(headline)
+        signal = generate_signal(vibe, volume_ratio)
 
-    # Display results
-    st.write(f"📄 **Headline:** *{headline}*")
-    st.write(f"🧠 **Vibe Score:** {vibe}")
-    st.write(f"🧭 **AI Signal:** {signal}")
-    st.markdown("---")
+        # Display insights
+        st.write(f"🐋 **Volume Ratio**: {volume_ratio:.2f}")
+        st.write(f"📰 **Headline**: _{headline}_")
+        st.write(f"🧠 **Vibe Score**: {vibe}")
+        st.write(f"🤖 **AI Signal**: {signal}")
+        st.markdown("---")
+
+    except Exception as e:
+        st.error(f"Failed to analyze {ticker}: {e}")
