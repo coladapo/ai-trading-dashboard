@@ -10,20 +10,11 @@ from openai import OpenAI
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# Sidebar controls
+# Sidebar - Timeframe selection
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-interval_map = {
-    "1d": "5m",
-    "5d": "15m",
-    "1mo": "30m",
-    "3mo": "1h",
-    "6mo": "1h",
-    "1y": "1d"
-}
-interval = interval_map[timeframe]
 
-# Tickers to track
+# List of tickers
 tickers = ["QBTS", "RGTI", "IONQ"]
 
 # Function: Fetch latest news headline from Finnhub
@@ -58,15 +49,69 @@ Score: #
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        reply = res.choices[0].message.content.strip()
-        score_line = next((line for line in reply.splitlines() if line.startswith("Score:")), None)
-        score = int(score_line.split(":")[1].strip()) if score_line else 0
-        reasons = "\n".join([line for line in reply.splitlines() if line.startswith("-")])
-        return score, reasons
+        response = res.choices[0].message.content.strip()
+        lines = response.split("\n")
+        score_line = next((line for line in lines if line.lower().startswith("score")), "Score: ?")
+        score = ''.join([c for c in score_line if c.isdigit()]) or "?"
+        reasoning = "\n".join(line for line in lines if line.startswith("-"))
+        return score, reasoning
     except Exception as e:
-        return 0, f"Error analyzing headline: {e}"
+        return "?", f"Error: {e}"
 
-# Function: Get AI trading recommendation
-def get_ai_signal(score):
-    if score >= 8:
-        return "
+# Function: Determine recommendation
+def get_signal(vibe_score):
+    try:
+        score = int(vibe_score)
+        if score >= 8:
+            return "📈 Buy"
+        elif score <= 3:
+            return "🔻 Sell"
+        else:
+            return "🤖 Hold"
+    except:
+        return "⚠️ No recommendation"
+
+# Main dashboard
+st.title("📊 AI-Powered Day Trading Dashboard")
+
+for ticker in tickers:
+    st.subheader(ticker)
+
+    # Fetch price data
+    try:
+        interval = "5m" if timeframe == "1d" else "1d"
+        df = yf.download(ticker, period=timeframe, interval=interval)
+
+        if df.empty:
+            st.warning(f"No data for {ticker}")
+            continue
+
+        # Format x-axis
+        df = df.reset_index()
+        df["Formatted Time"] = df["Datetime" if "Datetime" in df else "Date"].dt.strftime("%m-%d %H:%M" if interval == "5m" else "%m-%d")
+
+        # Plot chart
+        fig, ax = plt.subplots()
+        ax.plot(df["Formatted Time"], df["Close"], label=f"{ticker} Close Price", linewidth=2, color="dodgerblue")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Price")
+        ax.set_title(f"{ticker} Close Price")
+        ax.tick_params(axis='x', labelrotation=45)
+        st.pyplot(fig)
+
+        # News
+        headline = fetch_headline(ticker)
+        st.markdown(f"📰 **Headline:** _{headline}_")
+
+        # Vibe score + reasoning
+        vibe_score, reasoning = get_vibe_score_and_reasoning(headline)
+        st.markdown(f"🧠 **Vibe Score:** `{vibe_score}`")
+        st.markdown("💬 **Reasoning:**")
+        st.markdown(reasoning)
+
+        # Recommendation
+        signal = get_signal(vibe_score)
+        st.markdown(f"🤖 **AI Signal:** {signal}")
+
+    except Exception as e:
+        st.error(f"Chart error for {ticker}: {e}")
