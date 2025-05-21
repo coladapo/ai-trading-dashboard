@@ -35,7 +35,7 @@ def fetch_headline(ticker):
     url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
     response = requests.get(url)
     news = response.json()
-    if news and isinstance(news, list):
+    if news and isinstance(news, list) and len(news) > 0:
         return news[0]["headline"]
     return "No recent news found."
 
@@ -70,4 +70,43 @@ def parse_vibe_response(response):
         return None, []
 
 # === Display ===
-st.title("
+st.title("AI Trading Watchlist")
+
+cols = st.columns(len(tickers))
+for i, ticker in enumerate(tickers):
+    with cols[i]:
+        st.subheader(ticker)
+        df = fetch_price_data(ticker, timeframe)
+        if not df.empty:
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(
+                x=df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index,
+                open=df['Open'],
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                name='Price'
+            ))
+            fig.add_trace(go.Scatter(
+                x=df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index,
+                y=df['sma'],
+                mode='lines',
+                name='SMA (10)'
+            ))
+            fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No price data found.")
+
+        headline = fetch_headline(ticker)
+        st.write(f"**Latest Headline:** {headline}")
+        if headline != "No recent news found.":
+            vibe_response = get_vibe_score(headline)
+            score, reasons = parse_vibe_response(vibe_response)
+            if score:
+                st.metric("Vibe Score", score, delta=None)
+                st.markdown("\n".join(reasons))
+            else:
+                st.info("Unable to analyze headline sentiment.")
+        else:
+            st.info("No news to analyze.")
