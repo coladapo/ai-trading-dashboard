@@ -12,9 +12,9 @@ finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
 # === UI ===
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("Chart Timeframe")
+st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("Refresh Data")
+refresh = st.sidebar.button("🔁 Refresh Data")
 
 # === Tickers ===
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
@@ -67,7 +67,7 @@ Score: #
         print("OpenAI Error:", e)
         return None
 
-# === Parse Vibe Response ===
+# === Parse Vibe ===
 def parse_vibe_response(response):
     try:
         lines = response.splitlines()
@@ -79,7 +79,7 @@ def parse_vibe_response(response):
         return None, []
 
 # === Render App ===
-st.title("🧠 AI Trading Watchlist")
+st.title("AI Trading Watchlist")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -87,18 +87,20 @@ for i in range(0, len(tickers), 3):
     for j, ticker in enumerate(row_tickers):
         with cols[j]:
             st.subheader(ticker)
-
             df = fetch_price_data(ticker, timeframe)
             if not df.empty:
+                x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=df['Date'] if 'Date' in df else df.index,
-                    y=df['Close'],
-                    mode='lines',
+                fig.add_trace(go.Candlestick(
+                    x=x_vals,
+                    open=df['Open'],
+                    high=df['High'],
+                    low=df['Low'],
+                    close=df['Close'],
                     name='Price'
                 ))
                 fig.add_trace(go.Scatter(
-                    x=df['Date'] if 'Date' in df else df.index,
+                    x=x_vals,
                     y=df['sma'],
                     mode='lines',
                     name='SMA (10)'
