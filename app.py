@@ -5,6 +5,8 @@ import requests
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from openai import OpenAI
+import numpy as np
+from scipy.signal import argrelextrema
 
 # === Secrets ===
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -18,6 +20,15 @@ refresh = st.sidebar.button("🔁 Refresh Data")
 
 # === Tickers ===
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
+
+# === Support & Resistance Detector ===
+def detect_support_resistance(df, order=5):
+    try:
+        support = df.iloc[argrelextrema(df['Low'].values, np.less_equal, order=order)[0]]
+        resistance = df.iloc[argrelextrema(df['High'].values, np.greater_equal, order=order)[0]]
+        return support, resistance
+    except:
+        return pd.DataFrame(), pd.DataFrame()
 
 # === Fetch Price Data ===
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
@@ -79,7 +90,7 @@ def parse_vibe_response(response):
         return None, []
 
 # === Render App ===
-st.title("AI Trading Watchlist")
+st.title("🧠 AI Trading Watchlist with Chart Patterns")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -103,16 +114,37 @@ for i in range(0, len(tickers), 3):
                     x=x_vals,
                     y=df['sma'],
                     mode='lines',
-                    name='SMA (10)'
+                    name='SMA (10)',
+                    line=dict(color="blue", dash="dot")
                 ))
-                fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
+
+                # Add support & resistance
+                support, resistance = detect_support_resistance(df)
+                if not support.empty:
+                    fig.add_trace(go.Scatter(
+                        x=support['Date'] if 'Date' in support else support['Datetime'],
+                        y=support['Low'],
+                        mode='markers',
+                        name='Support',
+                        marker=dict(color='green', size=6, symbol='triangle-down')
+                    ))
+                if not resistance.empty:
+                    fig.add_trace(go.Scatter(
+                        x=resistance['Date'] if 'Date' in resistance else resistance['Datetime'],
+                        y=resistance['High'],
+                        mode='markers',
+                        name='Resistance',
+                        marker=dict(color='red', size=6, symbol='triangle-up')
+                    ))
+
+                fig.update_layout(height=300, margin=dict(l=0, r=0, t=25, b=0), xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("📉 No price data found.")
 
+            # Headline + AI
             headline = fetch_headline(ticker)
             st.write(f"**Latest Headline:** {headline}")
-
             if headline != "No recent news found.":
                 vibe_response = get_vibe_score(headline)
                 score, reasons = parse_vibe_response(vibe_response)
