@@ -20,21 +20,19 @@ refresh = st.sidebar.button("🔁 Refresh Data")
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
 
 # === Fetch Price Data ===
-@st.cache_data(ttl=30 if not refresh else 0)
+@st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
 def fetch_price_data(ticker, period):
     interval = "5m" if period == "1d" else "1d"
     try:
         df = yf.download(ticker, period=period, interval=interval)
-        if df.empty or "Close" not in df.columns:
-            return pd.DataFrame()
         df = df.reset_index()
-        df["sma"] = df["Close"].rolling(window=10).mean()
+        df['sma'] = df['Close'].rolling(window=10).mean()
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
 # === Fetch Headline (Look back 7 days) ===
-@st.cache_data(ttl=1800 if not refresh else 0)
+@st.cache_data(ttl=1800 if not refresh else 0, show_spinner=False)
 def fetch_headline(ticker):
     today = datetime.now().strftime("%Y-%m-%d")
     from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
@@ -45,12 +43,10 @@ def fetch_headline(ticker):
             news = response.json()
             if isinstance(news, list) and len(news) > 0:
                 return news[0]["headline"]
-            else:
-                return "No recent news found."
-        else:
-            return "❌ Finnhub API error"
+            return "No recent news found."
+        return "❌ Finnhub API error"
     except Exception as e:
-        return "❌ News error"
+        return f"❌ News error: {e}"
 
 # === Analyze Headline Sentiment with OpenAI ===
 def get_vibe_score(headline):
@@ -70,10 +66,12 @@ Score: #
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}]
         )
-        return res.choices[0].message.content.strip()
+        output = res.choices[0].message.content.strip()
+        return output
     except OpenAIError as e:
-        return "❌ OpenAI error"
+        return f"❌ OpenAI error: {e}"
 
+# === Parse Vibe Score ===
 def parse_vibe_response(response):
     try:
         lines = response.splitlines()
@@ -84,39 +82,43 @@ def parse_vibe_response(response):
     except:
         return None, []
 
-# === Display ===
+# === Display Watchlist in 3x3 Grid ===
 st.title("🧠 AI Trading Watchlist")
+rows = (len(tickers) + 2) // 3  # ensures 3 columns per row
+for r in range(rows):
+    cols = st.columns(3)
+    for i in range(3):
+        idx = r * 3 + i
+        if idx >= len(tickers): break
+        ticker = tickers[idx]
+        with cols[i]:
+            st.subheader(ticker)
 
-cols = st.columns(3)
-for idx, ticker in enumerate(tickers):
-    col = cols[idx % 3]
-    with col:
-        st.subheader(ticker)
-        df = fetch_price_data(ticker, timeframe)
-
-        if not df.empty and "Close" in df.columns and df["Close"].notna().all():
-            x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=x_vals, y=df['Close'], mode="lines", name="Price"))
-            fig.add_trace(go.Scatter(x=x_vals, y=df['sma'], mode="lines", name="SMA (10)"))
-            fig.update_layout(height=250, margin=dict(l=0, r=0, t=10, b=0), xaxis_rangeslider_visible=False)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("📉 No price data found.")
-
-        headline = fetch_headline(ticker)
-        st.markdown(f"**Latest Headline:** {headline}")
-
-        if "❌" not in headline and "No recent news" not in headline:
-            vibe_response = get_vibe_score(headline)
-            score, reasons = parse_vibe_response(vibe_response)
-            if score:
-                st.metric("Vibe Score", score)
-                st.markdown("\n".join(reasons))
+            # Chart
+            df = fetch_price_data(ticker, timeframe)
+            if not df.empty:
+                fig = go.Figure()
+                x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
+                fig.add_trace(go.Scatter(x=x_vals, y=df['Close'], mode="lines", name="Price"))
+                fig.add_trace(go.Scatter(x=x_vals, y=df['sma'], mode="lines", name="SMA (10)"))
+                fig.update_layout(height=250, margin=dict(l=0,r=0,t=10,b=0), xaxis_rangeslider_visible=False)
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("⚠️ Unable to analyze sentiment.")
-        else:
-            st.info("No news to analyze.")
+                st.info("📉 No price data found.")
 
-        if (idx + 1) % 3 == 0:
-            cols = st.columns(3)
+            # News
+            headline = fetch_headline(ticker)
+            st.write(f"**Latest Headline:** {headline}")
+
+            if "❌" in headline or "error" in headline.lower():
+                st.info("No news to analyze.")
+            elif headline != "No recent news found.":
+                vibe_response = get_vibe_score(headline)
+                score, reasons = parse_vibe_response(vibe_response)
+                if score:
+                    st.metric("Vibe Score", score)
+                    st.markdown("\n".join(reasons))
+                else:
+                    st.info("No vibe analysis.")
+            else:
+                st.info("No news to analyze.")
