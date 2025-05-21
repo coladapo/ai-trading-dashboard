@@ -13,7 +13,7 @@ try:
 except ImportError:
     ta_enabled = False
 
-# === Secrets ===
+# === API Setup ===
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
@@ -22,6 +22,7 @@ st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔁 Refresh Data")
+
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
 
 # === Fetch Price Data ===
@@ -65,13 +66,13 @@ def parse_vibe_response(response):
     try:
         lines = response.splitlines()
         score_line = next((line for line in lines if "Score:" in line), None)
-        score = int(score_line.split(":")[1].strip()) if score_line else None
+        score = int(score_line.split(":")[1].strip()) if score_line else 5
         reasons = [line for line in lines if line.strip().startswith("-")]
         return score, reasons
     except:
-        return None, []
+        return 5, []
 
-# === Pattern Detection (Optional) ===
+# === Detect Patterns (if TA enabled) ===
 def detect_pattern(df):
     try:
         if not ta_enabled or "Close" not in df:
@@ -85,11 +86,51 @@ def detect_pattern(df):
         else:
             return None
     except Exception:
-        return None
-
-# === Emoji Logic ===
-def vibe_emoji(score):
-    if score is None:
         return ""
-    if score <= 3:
-        return "
+
+# === Map score to sentiment emoji ===
+def get_sentiment_emoji(score):
+    if score >= 8:
+        return "🚀"
+    elif score >= 6:
+        return "📈"
+    elif score <= 3:
+        return "📉"
+    else:
+        return "😐"
+
+# === Render ===
+st.title("📊 AI-Powered Day Trading Watchlist")
+
+for ticker in tickers:
+    try:
+        df = fetch_price_data(ticker, timeframe)
+        headline = fetch_headline(ticker)
+        vibe_score, reasons = parse_vibe_response(get_vibe_score(headline))
+
+        sentiment_icon = get_sentiment_emoji(vibe_score)
+
+        with st.expander(f"{ticker} {sentiment_icon} {vibe_score}"):
+            fig, ax = plt.subplots()
+            time_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
+            ax.plot(df[time_col], df['Close'], color="dodgerblue", linewidth=2)
+            ax.set_title(f"{ticker} Close Price", fontsize=14)
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Price")
+            ax.tick_params(axis='x', rotation=45)
+            st.pyplot(fig)
+
+            st.markdown(f"📰 **Headline:** _{headline}_")
+            st.markdown("💬 **Reasoning:**")
+            for r in reasons:
+                st.markdown(f"- {r}")
+
+            pattern = detect_pattern(df)
+            if pattern:
+                emoji = "📈" if "Golden" in pattern else "📉"
+                st.markdown(f"📊 **AI Signal:** {emoji} {pattern}")
+            elif not ta_enabled:
+                st.info("📭 Pattern detection unavailable (pandas_ta not installed)")
+
+    except Exception as e:
+        st.error(f"⚠️ Failed to load data for {ticker}: {e}")
