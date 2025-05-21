@@ -22,7 +22,7 @@ st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔁 Refresh Data")
-tickers = ["QBTS", "RGTI", "IONQ"]
+tickers = ["CRWV","QBTS", "RGTI", "IONQ"]
 
 # === Fetch Price Data ===
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
