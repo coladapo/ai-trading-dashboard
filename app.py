@@ -12,9 +12,9 @@ finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
 # === UI ===
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("\ud83d\uddd3\ufe0f Chart Timeframe")
+st.sidebar.header("Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("\ud83d\udd04 Refresh Data")
+refresh = st.sidebar.button("Refresh Data")
 chart_type = st.sidebar.radio("Chart Type", ["Line Chart", "Candlestick"])
 
 # === Tickers ===
@@ -80,7 +80,7 @@ def parse_vibe_response(response):
         return None, []
 
 # === Render App ===
-st.title("\ud83e\udde0 AI Trading Watchlist")
+st.title("AI Trading Watchlist")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -124,7 +124,7 @@ for i in range(0, len(tickers), 3):
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("\ud83d\udcc9 No price data found.")
+                st.info("No price data found.")
 
             headline = fetch_headline(ticker)
             st.write(f"**Latest Headline:** {headline}")
@@ -136,6 +136,6 @@ for i in range(0, len(tickers), 3):
                     st.metric("Vibe Score", score)
                     st.markdown("\n".join(reasons))
                 else:
-                    st.info("\u26a0\ufe0f Unable to analyze headline sentiment.")
+                    st.info("Unable to analyze headline sentiment.")
             else:
                 st.info("No news to analyze.")
