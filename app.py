@@ -12,22 +12,34 @@ finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
 # === UI ===
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("📅 Chart Timeframe")
+st.sidebar.header("\ud83d\uddd3\ufe0f Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("🔁 Refresh Data")
+refresh = st.sidebar.button("\ud83d\udd01 Refresh Data")
 
 # === Tickers ===
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
 
+# === Interval Logic ===
+def get_interval(period):
+    return {
+        "1d": "5m",
+        "5d": "15m",
+        "1mo": "30m",
+        "3mo": "1h",
+        "6mo": "1d",
+        "1y": "1d"
+    }.get(period, "1d")
+
 # === Fetch Price Data ===
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
 def fetch_price_data(ticker, period):
-    interval = "5m" if period == "1d" else "1d"
+    interval = get_interval(period)
     df = yf.download(ticker, period=period, interval=interval)
     if df.empty:
         return pd.DataFrame()
     df = df.reset_index()
-    df['sma'] = df['Close'].rolling(window=10).mean()
+    sma_window = 3 if period in ["1d", "5d"] else 10
+    df['sma'] = df['Close'].rolling(window=sma_window).mean()
     return df
 
 # === Fetch Headline ===
@@ -79,7 +91,7 @@ def parse_vibe_response(response):
         return None, []
 
 # === Render App ===
-st.title("AI Trading Watchlist")
+st.title("\ud83e\udde0 AI Trading Watchlist")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -88,15 +100,14 @@ for i in range(0, len(tickers), 3):
         with cols[j]:
             st.subheader(ticker)
             df = fetch_price_data(ticker, timeframe)
-            if not df.empty:
+
+            if not df.empty and "Close" in df.columns and df["Close"].dropna().shape[0] > 2:
                 x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
                 fig = go.Figure()
-                fig.add_trace(go.Candlestick(
+                fig.add_trace(go.Scatter(
                     x=x_vals,
-                    open=df['Open'],
-                    high=df['High'],
-                    low=df['Low'],
-                    close=df['Close'],
+                    y=df['Close'],
+                    mode='lines',
                     name='Price'
                 ))
                 fig.add_trace(go.Scatter(
@@ -108,7 +119,7 @@ for i in range(0, len(tickers), 3):
                 fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("📉 No price data found.")
+                st.info("\ud83d\udcc9 No price data found.")
 
             headline = fetch_headline(ticker)
             st.write(f"**Latest Headline:** {headline}")
@@ -120,6 +131,6 @@ for i in range(0, len(tickers), 3):
                     st.metric("Vibe Score", score)
                     st.markdown("\n".join(reasons))
                 else:
-                    st.info("⚠️ Unable to analyze headline sentiment.")
+                    st.info("\u26a0\ufe0f Unable to analyze headline sentiment.")
             else:
                 st.info("No news to analyze.")
