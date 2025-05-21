@@ -12,9 +12,9 @@ finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
 # === UI ===
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("📅 Chart Timeframe")  # Valid emoji
-# OR
-st.sidebar.header("Chart Timeframe")     # Plain text fallback
+st.sidebar.header("Chart Timeframe")
+timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
+refresh = st.sidebar.button("Refresh Data")    # Plain text fallback
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("\ud83d\udd01 Refresh Data")
 
