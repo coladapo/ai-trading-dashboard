@@ -1,7 +1,6 @@
 streamlit
 yfinance
-matplotlib
 pandas
-openai>=1.0.0
 requests
-pandas_ta
+plotly
+openai
