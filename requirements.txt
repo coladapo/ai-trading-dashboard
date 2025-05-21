@@ -4,7 +4,7 @@ pandas
 requests
 scipy
 numpy
-openai>=1.0.0
+openai
 matplotlib
 plotly
 pandas_ta
