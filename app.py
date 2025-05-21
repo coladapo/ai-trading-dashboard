@@ -107,10 +107,10 @@ for ticker in tickers:
         df = fetch_price_data(ticker, timeframe)
         headline = fetch_headline(ticker)
         vibe_score, reasons = parse_vibe_response(get_vibe_score(headline))
-
         sentiment_icon = get_sentiment_emoji(vibe_score)
 
         with st.expander(f"{ticker} {sentiment_icon} {vibe_score}"):
+            # Price Chart
             fig, ax = plt.subplots()
             time_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
             ax.plot(df[time_col], df['Close'], color="dodgerblue", linewidth=2)
@@ -120,11 +120,18 @@ for ticker in tickers:
             ax.tick_params(axis='x', rotation=45)
             st.pyplot(fig)
 
+            # Headline
             st.markdown(f"📰 **Headline:** _{headline}_")
+
+            # Vibe Score
+            st.markdown(f"🧠 **Vibe Score:** {vibe_score} {sentiment_icon}")
+
+            # Reasoning
             st.markdown("💬 **Reasoning:**")
             for r in reasons:
                 st.markdown(f"- {r}")
 
+            # Pattern
             pattern = detect_pattern(df)
             if pattern:
                 emoji = "📈" if "Golden" in pattern else "📉"
