@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from openai import OpenAI
 
-# === Try pandas_ta ===
+# Try to import pandas_ta; fallback if unavailable
 try:
     import pandas_ta as ta
     ta_enabled = True
@@ -42,7 +42,7 @@ def fetch_headline(ticker):
         return news[0]["headline"]
     return "No recent news found."
 
-# === Vibe Score via GPT ===
+# === AI Vibe Scoring ===
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
@@ -71,7 +71,7 @@ def parse_vibe_response(response):
     except:
         return None, []
 
-# === Pattern Detection ===
+# === Pattern Detection (Optional) ===
 def detect_pattern(df):
     try:
         if not ta_enabled or "Close" not in df:
@@ -82,51 +82,14 @@ def detect_pattern(df):
             return "Golden Cross"
         elif df['sma_fast'].iloc[-1] < df['sma_slow'].iloc[-1] and df['sma_fast'].iloc[-2] >= df['sma_slow'].iloc[-2]:
             return "Death Cross"
-        return None
+        else:
+            return None
     except Exception:
         return None
 
-# === Main App ===
-st.title("📊 AI-Powered Day Trading Watchlist")
-
-for ticker in tickers:
-    try:
-        df = fetch_price_data(ticker, timeframe)
-        headline = fetch_headline(ticker)
-        vibe_response = get_vibe_score(headline)
-        score, reasons = parse_vibe_response(vibe_response)
-        score_display = f" ({score}/10)" if score else ""
-
-        with st.expander(f"{ticker}{score_display}", expanded=False):
-            # === Chart ===
-            fig, ax = plt.subplots()
-            time_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
-            ax.plot(df[time_col], df['Close'], color="dodgerblue", linewidth=2)
-            ax.set_title(f"{ticker} Close Price")
-            ax.set_xlabel("Time")
-            ax.set_ylabel("Price")
-            ax.tick_params(axis='x', rotation=45)
-            st.pyplot(fig)
-
-            # === News + Vibe ===
-            st.markdown(f"📰 **Headline:** _{headline}_")
-
-            if score:
-                st.markdown(f"🧠 **Vibe Score:** <span style='color:mediumseagreen;font-weight:bold'>{score}</span>", unsafe_allow_html=True)
-            if reasons:
-                st.markdown("💬 **Reasoning:**")
-                for r in reasons:
-                    st.markdown(f"- {r.lstrip('- ').strip()}")
-            else:
-                st.markdown("*No reasoning available.*")
-
-            # === Pattern ===
-            pattern = detect_pattern(df)
-            if pattern:
-                emoji = "📈" if "Golden" in pattern else "📉"
-                st.markdown(f"📊 **AI Signal:** {emoji} {pattern}")
-            elif not ta_enabled:
-                st.info("📭 Pattern detection unavailable (pandas_ta not installed)")
-
-    except Exception as e:
-        st.error(f"⚠️ Failed to load data for {ticker}: {e}")
+# === Emoji Logic ===
+def vibe_emoji(score):
+    if score is None:
+        return ""
+    if score <= 3:
+        return "
