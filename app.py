@@ -17,7 +17,7 @@ timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", 
 refresh = st.sidebar.button("🔁 Refresh Data")
 
 # === Tickers ===
-tickers = ["QBTS", "RGTI", "IONQ", "CRVW", "DBX", "TSM"]
+tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
 
 # === Fetch Price Data ===
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
