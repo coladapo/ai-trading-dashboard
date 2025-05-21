@@ -2,99 +2,86 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
-from datetime import datetime
 from openai import OpenAI
-# === API Setup ===
+
+# Load secrets
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
-# === UI ===
+
+# UI
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("📅 Chart Timeframe")
+st.sidebar.header("🗓️ Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
-refresh = st.sidebar.button("🔁 Refresh Data")
-# === Tickers ===
-tickers = ["QBTS", "RGTI", "IONQ"]
-# === Fetch Price Data ===
-@st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
+refresh = st.sidebar.button("🔄 Refresh Data")
+
+# Tickers to track
+tickers = ["QBTS", "RGTI", "IONQ", "CRVW", "DBX", "TSM"]
+
+# === Functions ===
+
+@st.cache_data(ttl=3600)
 def fetch_price_data(ticker, period):
-    interval = "5m" if period == "1d" else "1d"
-    df = yf.download(ticker, period=period, interval=interval)
-    df = df.reset_index()
-    df['sma'] = df['Close'].rolling(window=10).mean()
-    return df
-# === Fetch News Headline ===
-@st.cache_data(ttl=1800 if not refresh else 0, show_spinner=False)
-def fetch_headline(ticker):
-    today = datetime.now().strftime("%Y-%m-%d")
-    url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
-    response = requests.get(url)
-    news = response.json()
-    if news and isinstance(news, list) and len(news) > 0:
-        return news[0]["headline"]
-    return "No recent news found."
-# === Vibe Score ===
-def get_vibe_score(headline):
-    prompt = f"""Analyze this stock market news headline:
-"{headline}"
-Rate it from 1 (very bearish) to 10 (very bullish). Then summarize your reasoning in 2–3 clear bullet points starting with "-".
-Respond in this format:
-Score: #
-- Reason 1
-- Reason 2
-- Reason 3 (optional)
-"""
-    res = openai_client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    output = res.choices[0].message.content.strip()
-    return output
-def parse_vibe_response(response):
     try:
-        lines = response.splitlines()
-        score_line = next((line for line in lines if "Score:" in line), None)
-        score = int(score_line.split(":")[1].strip()) if score_line else None
-        reasons = [line for line in lines if line.strip().startswith("-")]
-        return score, reasons
-    except:
-        return None, []
-# === Display ===
-st.title("AI Trading Watchlist")
-cols = st.columns(len(tickers))
-for i, ticker in enumerate(tickers):
-    with cols[i]:
+        interval = "1d" if period != "1d" else "5m"
+        df = yf.download(ticker, period=period, interval=interval)
+        df.reset_index(inplace=True)
+        df["sma"] = df["Close"].rolling(window=10).mean()
+        return df
+    except Exception:
+        return None
+
+@st.cache_data(ttl=1800)
+def fetch_news_headline(ticker):
+    today = datetime.today().date()
+    last_week = today - timedelta(days=7)
+    url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={last_week}&to={today}&token={finnhub_api_key}"
+    try:
+        res = requests.get(url)
+        if res.status_code == 200:
+            news_data = res.json()
+            if news_data:
+                return news_data[0].get("headline", "No headline found.")
+    except Exception:
+        pass
+    return None
+
+def get_vibe_score(headline):
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{
+                "role": "user",
+                "content": f"Rate this stock news from 1 (bad) to 10 (great) for traders: '{headline}' and briefly explain why."
+            }]
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return "Vibe Score: N/A"
+
+# === Display Grid ===
+cols = st.columns(3)
+
+for idx, ticker in enumerate(tickers):
+    with cols[idx % 3]:
         st.subheader(ticker)
+
         df = fetch_price_data(ticker, timeframe)
-        if not df.empty:
+        if df is not None and not df.empty:
             fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index,
-                open=df['Open'],
-                high=df['High'],
-                low=df['Low'],
-                close=df['Close'],
-                name='Price'
-            ))
-            fig.add_trace(go.Scatter(
-                x=df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index,
-                y=df['sma'],
-                mode='lines',
-                name='SMA (10)'
-            ))
-            fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], name="Price"))
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["sma"], name="SMA (10)"))
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No price data found.")
-        headline = fetch_headline(ticker)
-        st.write(f"Latest Headline: {headline}")
-        if headline != "No recent news found.":
-            vibe_response = get_vibe_score(headline)
-            score, reasons = parse_vibe_response(vibe_response)
-            if score:
-                st.metric("Vibe Score", score, delta=None)
-                st.markdown("\n".join(reasons))
-            else:
-                st.info("Unable to analyze headline sentiment.")
+            st.warning("⚠️ No chart data.")
+
+        headline = fetch_news_headline(ticker)
+        if headline:
+            st.markdown(f"**Latest Headline:** {headline}")
+            score = get_vibe_score(headline)
+            st.info(score)
         else:
-            st.info("No news to analyze.")
+            st.error("❌ Error fetching news.")
+            st.info("Vibe Score: N/A")
+            st.write("No news to analyze.")
