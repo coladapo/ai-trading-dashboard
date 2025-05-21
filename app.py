@@ -6,23 +6,25 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from openai import OpenAI
 
-# Try to import pandas_ta; fallback if unavailable
+# === Optional TA Imports ===
 try:
     import pandas_ta as ta
     ta_enabled = True
 except ImportError:
     ta_enabled = False
 
-# === API Setup ===
+# === API Keys (from secrets.toml or Streamlit secrets manager) ===
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# === UI Setup ===
+# === Page Config ===
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔁 Refresh Data")
-tickers = ["CRWV","QBTS", "RGTI", "IONQ"]
+
+# === Stock Tickers ===
+tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
 
 # === Fetch Price Data ===
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
@@ -31,18 +33,18 @@ def fetch_price_data(ticker, period):
     df = yf.download(ticker, period=period, interval=interval)
     return df.reset_index()
 
-# === Fetch Headline ===
+# === Fetch News Headline ===
 @st.cache_data(ttl=1800 if not refresh else 0, show_spinner=False)
 def fetch_headline(ticker):
     today = datetime.now().strftime("%Y-%m-%d")
     url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={today}&to={today}&token={finnhub_api_key}"
     response = requests.get(url)
     news = response.json()
-    if news and isinstance(news, list):
+    if news and isinstance(news, list) and len(news) > 0:
         return news[0]["headline"]
     return "No recent news found."
 
-# === AI Vibe Scoring ===
+# === AI Vibe Score ===
 def get_vibe_score(headline):
     prompt = f"""Analyze this stock market news headline:
 "{headline}"
@@ -71,7 +73,7 @@ def parse_vibe_response(response):
     except:
         return None, []
 
-# === Detect Patterns (if TA enabled) ===
+# === Optional Pattern Detection ===
 def detect_pattern(df):
     try:
         if not ta_enabled or "Close" not in df:
@@ -87,13 +89,23 @@ def detect_pattern(df):
     except Exception:
         return None
 
-# === Render ===
+# === Main App Layout ===
 st.title("📊 AI-Powered Day Trading Watchlist")
 
 for ticker in tickers:
-    st.subheader(ticker)
     try:
         df = fetch_price_data(ticker, timeframe)
+
+        # === Get Headline + Vibe Score ===
+        headline = fetch_headline(ticker)
+        vibe_response = get_vibe_score(headline)
+        score, reasons = parse_vibe_response(vibe_response)
+        score_display = f" ({score}/10)" if score else ""
+
+        # === Ticker Header
+        st.subheader(f"🔹 {ticker}{score_display}")
+
+        # === Chart
         fig, ax = plt.subplots()
         time_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
         ax.plot(df[time_col], df['Close'], color="dodgerblue", linewidth=2)
@@ -103,29 +115,27 @@ for ticker in tickers:
         ax.tick_params(axis='x', rotation=45)
         st.pyplot(fig)
 
-        # === Headline + Vibe Analysis ===
-        headline = fetch_headline(ticker)
+        # === News Headline
         st.markdown(f"📰 **Headline:** _{headline}_")
 
-        response = get_vibe_score(headline)
-        score, reasons = parse_vibe_response(response)
-
-        st.markdown(f"🧠 **Vibe Score:** <span style='color:mediumseagreen;font-weight:bold'>{score}</span>", unsafe_allow_html=True)
+        # === Score + Reasoning
+        if score:
+            st.markdown(f"🧠 **Vibe Score:** <span style='color:mediumseagreen;font-weight:bold'>{score}</span>", unsafe_allow_html=True)
         if reasons:
             st.markdown("💬 **Reasoning:**")
-            for r in reasons:
-                st.markdown(f"- {r}")
+            for reason in reasons:
+                st.markdown(f"- {reason.lstrip('- ').strip()}")
         else:
             st.markdown("*No reasoning available.*")
 
-        # === Pattern Detection ===
+        # === Signal (TA)
         pattern = detect_pattern(df)
         if pattern:
             emoji = "📈" if "Golden" in pattern else "📉"
             st.markdown(f"📊 **AI Signal:** {emoji} {pattern}")
         elif not ta_enabled:
             st.info("📭 Pattern detection unavailable (pandas_ta not installed)")
-        
+
         st.divider()
 
     except Exception as e:
