@@ -1,22 +1,23 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import requests
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from openai import OpenAI
-import numpy as np
 from scipy.signal import argrelextrema
+from openai import OpenAI
 
 # === Secrets ===
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# === UI ===
-st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
+# === UI Config ===
+st.set_page_config(page_title="🧠 AI Trading Watchlist", layout="wide")
 st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔁 Refresh Data")
+view_option = st.sidebar.radio("Display Mode", ["Chart View", "Table View"])
 
 # === Tickers ===
 tickers = ["QBTS", "RGTI", "IONQ", "CRWV", "DBX", "TSM"]
@@ -89,8 +90,8 @@ def parse_vibe_response(response):
     except:
         return None, []
 
-# === Render App ===
-st.title("🧠 AI Trading Watchlist with Chart Patterns")
+# === App Render ===
+st.title("🧠 AI Trading Watchlist")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -99,50 +100,36 @@ for i in range(0, len(tickers), 3):
         with cols[j]:
             st.subheader(ticker)
             df = fetch_price_data(ticker, timeframe)
-            if not df.empty:
-                x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(
-                    x=x_vals,
-                    open=df['Open'],
-                    high=df['High'],
-                    low=df['Low'],
-                    close=df['Close'],
-                    name='Price'
-                ))
-                fig.add_trace(go.Scatter(
-                    x=x_vals,
-                    y=df['sma'],
-                    mode='lines',
-                    name='SMA (10)',
-                    line=dict(color="blue", dash="dot")
-                ))
 
-                # Add support & resistance
-                support, resistance = detect_support_resistance(df)
-                if not support.empty:
-                    fig.add_trace(go.Scatter(
-                        x=support['Date'] if 'Date' in support else support['Datetime'],
-                        y=support['Low'],
-                        mode='markers',
-                        name='Support',
-                        marker=dict(color='green', size=6, symbol='triangle-down')
+            if view_option == "Chart View":
+                if not df.empty and "Close" in df:
+                    x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
+                    fig = go.Figure()
+                    fig.add_trace(go.Candlestick(
+                        x=x_vals,
+                        open=df['Open'],
+                        high=df['High'],
+                        low=df['Low'],
+                        close=df['Close'],
+                        name='Price'
                     ))
-                if not resistance.empty:
-                    fig.add_trace(go.Scatter(
-                        x=resistance['Date'] if 'Date' in resistance else resistance['Datetime'],
-                        y=resistance['High'],
-                        mode='markers',
-                        name='Resistance',
-                        marker=dict(color='red', size=6, symbol='triangle-up')
-                    ))
+                    fig.add_trace(go.Scatter(x=x_vals, y=df['sma'], mode='lines', name='SMA (10)'))
+                    support, resistance = detect_support_resistance(df)
+                    if not support.empty:
+                        fig.add_trace(go.Scatter(x=support[x_vals.name], y=support['Low'], mode='markers', name='Support', marker=dict(color='green')))
+                    if not resistance.empty:
+                        fig.add_trace(go.Scatter(x=resistance[x_vals.name], y=resistance['High'], mode='markers', name='Resistance', marker=dict(color='red')))
+                    fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("📉 No price data found.")
 
-                fig.update_layout(height=300, margin=dict(l=0, r=0, t=25, b=0), xaxis_rangeslider_visible=False)
-                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("📉 No price data found.")
+                if not df.empty:
+                    st.dataframe(df[['Date', 'Open', 'High', 'Low', 'Close', 'sma']].tail(10), use_container_width=True)
+                else:
+                    st.info("📉 No price data found.")
 
-            # Headline + AI
             headline = fetch_headline(ticker)
             st.write(f"**Latest Headline:** {headline}")
             if headline != "No recent news found.":
