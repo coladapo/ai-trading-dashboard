@@ -79,7 +79,7 @@ def parse_vibe_response(response):
         return None, []
 
 # === Render App ===
-st.title("🧠 AI Trading Watchlist")
+st.title("AI Trading Watchlist")
 
 for i in range(0, len(tickers), 3):
     row_tickers = tickers[i:i+3]
@@ -90,38 +90,22 @@ for i in range(0, len(tickers), 3):
             df = fetch_price_data(ticker, timeframe)
             if not df.empty:
                 x_vals = df['Datetime'] if 'Datetime' in df else df['Date'] if 'Date' in df else df.index
-
                 fig = go.Figure()
-
-                if timeframe == "1d" and all(col in df.columns for col in ["Open", "High", "Low", "Close"]):
-                    fig.add_trace(go.Candlestick(
-                        x=x_vals,
-                        open=df['Open'],
-                        high=df['High'],
-                        low=df['Low'],
-                        close=df['Close'],
-                        name='Price'
-                    ))
-                else:
-                    fig.add_trace(go.Scatter(
-                        x=x_vals,
-                        y=df['Close'],
-                        mode='lines',
-                        name='Price'
-                    ))
-
+                fig.add_trace(go.Candlestick(
+                    x=x_vals,
+                    open=df['Open'],
+                    high=df['High'],
+                    low=df['Low'],
+                    close=df['Close'],
+                    name='Price'
+                ))
                 fig.add_trace(go.Scatter(
                     x=x_vals,
                     y=df['sma'],
                     mode='lines',
                     name='SMA (10)'
                 ))
-
-                fig.update_layout(
-                    height=300,
-                    margin=dict(l=0, r=0, t=25, b=0),
-                    xaxis_rangeslider_visible=False
-                )
+                fig.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("📉 No price data found.")
