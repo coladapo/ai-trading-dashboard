@@ -7,4 +7,3 @@ numpy
 openai
 matplotlib
 plotly
-pandas_ta
