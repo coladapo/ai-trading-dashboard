@@ -23,14 +23,22 @@ tickers = ["QBTS", "RGTI", "IONQ"]
 @st.cache_data(ttl=30 if not refresh else 0, show_spinner=False)
 def fetch_price_data(ticker, period):
     try:
-        interval = "5m" if period == "1d" else "1d"
-        df = yf.download(ticker, period=period, interval=interval)
-        if df.empty:
+        interval = "5m" if period in ["1d", "5d"] else "1d"
+        data = yf.download(ticker, period=period, interval=interval)
+        if data.empty:
             return pd.DataFrame()
         
-        df = df.reset_index()
-        df['sma'] = df['Close'].rolling(window=10).mean()
-        return df
+        # Reset index to make Date a column
+        data = data.reset_index()
+        
+        # Make sure Datetime column exists and is properly formatted
+        if 'Date' in data.columns and 'Datetime' not in data.columns:
+            data.rename(columns={'Date': 'Datetime'}, inplace=True)
+            
+        # Calculate SMA
+        data['sma'] = data['Close'].rolling(window=10).mean()
+        
+        return data
     except Exception as e:
         st.error(f"Error fetching price data for {ticker}: {str(e)}")
         return pd.DataFrame()
@@ -47,7 +55,6 @@ def fetch_headline(ticker):
         response = requests.get(url)
         
         if response.status_code != 200:
-            st.warning(f"API error: {response.status_code} - {response.text}")
             return "No recent news found."
             
         news = response.json()
@@ -99,26 +106,6 @@ def parse_vibe_response(response):
         st.error(f"Error parsing vibe response: {str(e)}")
         return None, []
 
-# === For debugging ===
-def debug_api_keys():
-    # Check if API keys are available (don't show full keys)
-    if "OPENAI_API_KEY" in st.secrets:
-        key = st.secrets["OPENAI_API_KEY"]
-        masked_key = key[:4] + "*" * (len(key) - 8) + key[-4:] if len(key) > 8 else "****"
-        st.sidebar.success(f"OpenAI API Key: {masked_key}")
-    else:
-        st.sidebar.error("OpenAI API Key not found")
-    
-    if "FINNHUB_API_KEY" in st.secrets:
-        key = st.secrets["FINNHUB_API_KEY"]
-        masked_key = key[:4] + "*" * (len(key) - 8) + key[-4:] if len(key) > 8 else "****"
-        st.sidebar.success(f"Finnhub API Key: {masked_key}")
-    else:
-        st.sidebar.error("Finnhub API Key not found")
-
-# Uncomment this line to check API keys (for debugging only)
-# debug_api_keys()
-
 # === Display ===
 st.title("AI Trading Watchlist")
 cols = st.columns(len(tickers))
@@ -128,42 +115,62 @@ for i, ticker in enumerate(tickers):
         st.subheader(ticker)
         
         df = fetch_price_data(ticker, timeframe)
-        if not df.empty:
-            fig = go.Figure()
+        
+        if not df.empty and len(df) > 1:  # Need at least 2 points to draw a line
+            x_col = 'Datetime' if 'Datetime' in df.columns else 'Date' if 'Date' in df.columns else None
             
-            # Determine the x-axis column
-            x_col = None
-            if 'Datetime' in df.columns:
-                x_col = 'Datetime'
-            elif 'Date' in df.columns:
-                x_col = 'Date'
-            
-            if x_col:
+            if x_col is not None:
+                # Create the figure with specific size and margins
+                fig = go.Figure()
+                
+                # Add price line
                 fig.add_trace(go.Scatter(
                     x=df[x_col],
                     y=df['Close'],
                     mode='lines',
-                    name='Price'
+                    name='Price',
+                    line=dict(color='#1f77b4', width=2)
                 ))
+                
+                # Add SMA line
                 fig.add_trace(go.Scatter(
                     x=df[x_col],
                     y=df['sma'],
                     mode='lines',
-                    name='SMA (10)'
+                    name='SMA (10)',
+                    line=dict(color='#ff7f0e', width=1.5, dash='dot')
                 ))
+                
+                # Update the layout for better visualization
                 fig.update_layout(
-                    height=300, 
-                    margin=dict(l=0, r=0, t=25, b=0),
-                    xaxis_title=None,
-                    yaxis_title=None,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    height=300,
+                    margin=dict(l=0, r=0, t=30, b=0),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    xaxis=dict(
+                        showgrid=False,
+                        title=None,
+                        rangeslider=dict(visible=False)
+                    ),
+                    yaxis=dict(
+                        showgrid=True,
+                        gridcolor='rgba(230,230,230,0.3)'
+                    ),
+                    legend=dict(
+                        orientation="h",
+                        yanchor="bottom", 
+                        y=1.02, 
+                        xanchor="right", 
+                        x=1
+                    )
                 )
+                
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.error("Could not determine date column in dataframe")
+                st.error(f"Date column not found in data for {ticker}")
         else:
-            st.info("No price data found.")
-            
+            st.info(f"Insufficient price data found for {ticker}.")
+        
         headline = fetch_headline(ticker)
         st.write(f"**Latest Headline:** {headline}")
         
