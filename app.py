@@ -6,82 +6,77 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from openai import OpenAI
 
-# Load secrets
+# Load secrets from Streamlit Cloud
 openai_client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 finnhub_api_key = st.secrets["FINNHUB_API_KEY"]
 
-# UI
+# --- UI setup ---
 st.set_page_config(page_title="AI Trading Watchlist", layout="wide")
-st.sidebar.header("🗓️ Chart Timeframe")
+st.sidebar.header("📅 Chart Timeframe")
 timeframe = st.sidebar.selectbox("Select timeframe", ["1d", "5d", "1mo", "3mo", "6mo", "1y"])
 refresh = st.sidebar.button("🔄 Refresh Data")
 
-# Tickers to track
+# --- Tickers to Watch ---
 tickers = ["QBTS", "RGTI", "IONQ", "CRVW", "DBX", "TSM"]
 
-# === Functions ===
-
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=30)
 def fetch_price_data(ticker, period):
     try:
-        interval = "1d" if period != "1d" else "5m"
+        interval = "1h" if period in ["1d", "5d"] else "1d"
         df = yf.download(ticker, period=period, interval=interval)
         df.reset_index(inplace=True)
-        df["sma"] = df["Close"].rolling(window=10).mean()
+        df["SMA (10)"] = df["Close"].rolling(window=10).mean()
         return df
     except Exception:
         return None
 
 @st.cache_data(ttl=1800)
 def fetch_news_headline(ticker):
-    today = datetime.today().date()
-    last_week = today - timedelta(days=7)
-    url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={last_week}&to={today}&token={finnhub_api_key}"
     try:
-        res = requests.get(url)
-        if res.status_code == 200:
-            news_data = res.json()
-            if news_data:
-                return news_data[0].get("headline", "No headline found.")
-    except Exception:
-        pass
-    return None
+        today = datetime.today().date()
+        from_date = today - timedelta(days=7)
+        url = f"https://finnhub.io/api/v1/company-news?symbol={ticker}&from={from_date}&to={today}&token={finnhub_api_key}"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                return data[0].get("headline", "No headline found.")
+            return "⚠️ No recent news found."
+        return "❌ Error fetching news."
+    except:
+        return "❌ Error fetching news."
 
 def get_vibe_score(headline):
     try:
-        response = openai_client.chat.completions.create(
+        res = openai_client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{
-                "role": "user",
-                "content": f"Rate this stock news from 1 (bad) to 10 (great) for traders: '{headline}' and briefly explain why."
-            }]
+            messages=[{"role": "system", "content": "Rate the sentiment of this headline from 1 (negative) to 10 (positive)."},
+                      {"role": "user", "content": headline}]
         )
-        return response.choices[0].message.content.strip()
-    except Exception:
-        return "Vibe Score: N/A"
+        return res.choices[0].message.content.strip()
+    except:
+        return "N/A"
 
-# === Display Grid ===
+# --- Layout ---
 cols = st.columns(3)
-
-for idx, ticker in enumerate(tickers):
-    with cols[idx % 3]:
+for i, ticker in enumerate(tickers):
+    col = cols[i % 3]
+    with col:
         st.subheader(ticker)
-
+        
         df = fetch_price_data(ticker, timeframe)
         if df is not None and not df.empty:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], name="Price"))
-            fig.add_trace(go.Scatter(x=df["Date"], y=df["sma"], name="SMA (10)"))
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], mode="lines", name="Price"))
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["SMA (10)"], mode="lines", name="SMA (10)"))
+            fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=250)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("⚠️ No chart data.")
+            st.warning("⚠️ Could not load chart.")
 
+        # Headline and Vibe
         headline = fetch_news_headline(ticker)
-        if headline:
-            st.markdown(f"**Latest Headline:** {headline}")
-            score = get_vibe_score(headline)
-            st.info(score)
-        else:
-            st.error("❌ Error fetching news.")
-            st.info("Vibe Score: N/A")
-            st.write("No news to analyze.")
+        st.markdown(f"**Latest Headline:** {headline}")
+        score = get_vibe_score(headline) if "❌" not in headline and "⚠️" not in headline else "N/A"
+        st.info(f"Vibe Score: {score}")
+        st.caption("No news to analyze." if score == "N/A" else "")
